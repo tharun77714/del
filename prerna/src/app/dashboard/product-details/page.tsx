@@ -1,7 +1,6 @@
-
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -14,7 +13,12 @@ import { saveDesignAction, type SavedDesign } from '@/lib/actions/supabase-actio
 import { useAuth } from '@/hooks/useAuth'; // Import useAuth
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from "@/hooks/use-toast";
+import dynamic from 'next/dynamic'; // Import dynamic for client-side component loading
 
+const DynamicTryOnCanvas = dynamic(() =>
+  import('@/components/product-details/TryOnCanvas').then(mod => mod.TryOnCanvas),
+  { ssr: false } // Disable server-side rendering for this component
+);
 
 export default function ProductDetailsPage() {
   const router = useRouter();
@@ -30,6 +34,18 @@ export default function ProductDetailsPage() {
   const [isSavingDesign, setIsSavingDesign] = useState<boolean>(false); // New state for saving
   const [error, setError] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
+  const [webcamEnabled, setWebcamEnabled] = useState(false); // New state to control webcam active state
+  const [tryOnMode, setTryOnMode] = useState(false); // New state for 2D try-on active state
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const jewelryImageRef = useRef<HTMLImageElement>(new window.Image());
+  const imageX = useRef(0);
+  const imageY = useRef(0);
+  const imageScale = useRef(1);
+  const isDragging = useRef(false);
+  const lastX = useRef(0);
+  const lastY = useRef(0);
 
   useEffect(() => {
     setIsMounted(true);
@@ -123,6 +139,164 @@ export default function ProductDetailsPage() {
     }
   }, [mainImageUri, mainPromptForVariations, isMounted, toast]);
 
+  // Effect to handle try-on mode activation
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const storedActivateTryOnMode = sessionStorage.getItem('activateTryOnMode');
+      if (storedActivateTryOnMode === 'true') {
+        setTryOnMode(true);
+        setWebcamEnabled(true); // Automatically enable webcam for try-on mode
+        sessionStorage.removeItem('activateTryOnMode'); // Clear the flag
+      }
+    }
+  }, []);
+
+  // Effect to load jewelry image for try-on
+  useEffect(() => {
+    if (mainImageUri) {
+      jewelryImageRef.current.src = mainImageUri;
+      jewelryImageRef.current.onload = () => {
+        // Center the image initially
+        if (canvasRef.current) {
+          imageX.current = (canvasRef.current.width / 2) - (jewelryImageRef.current.width * imageScale.current / 2);
+          imageY.current = (canvasRef.current.height / 2) - (jewelryImageRef.current.height * imageScale.current / 2);
+          drawCanvas(); // Redraw with new image position
+        }
+      };
+    }
+  }, [mainImageUri]);
+
+  // Helper functions for try-on mode (retained in parent as they use parent state/refs)
+  const onResults = useCallback((results: any) => {
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video) return;
+
+    const context = canvas.getContext('2d');
+    if (!context) return;
+
+    context.save();
+    context.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Only draw the mirrored video feed if webcam is enabled
+    if (webcamEnabled) {
+      context.translate(canvas.width, 0);
+      context.scale(-1, 1);
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    }
+
+    // Draw landmarks and jewelry image only if tryOnMode is active
+    if (tryOnMode) {
+      // Only draw landmarks if results exist and tryOnMode is active
+      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        for (const landmarks of results.multiFaceLandmarks) {
+          // Example: Get nose tip for positioning
+          const noseTip = landmarks[1]; // Index for nose tip
+          const rightEye = landmarks[33]; // Index for right eye
+          const leftEye = landmarks[263]; // Index for left eye
+          const mouthLeft = landmarks[61]; // Index for mouth left
+          const mouthRight = landmarks[291]; // Index for mouth right
+
+          // Calculate approximate face width based on eye distance
+          const faceWidth = Math.sqrt(
+            Math.pow((rightEye.x - leftEye.x) * canvas.width, 2) +
+            Math.pow((rightEye.y - leftEye.y) * canvas.height, 2)
+          );
+
+          // Calculate approximate jewelry size based on face width
+          // This is a rough estimation, you'll need to fine-tune these values
+          let jewelryWidth = faceWidth * 0.5; // Example: 50% of face width
+          let jewelryHeight = (jewelryWidth / jewelryImageRef.current.width) * jewelryImageRef.current.height;
+
+          // Adjust position for necklace - roughly center it below the nose, slightly above mouth
+          // You'll need to experiment with these offsets
+          imageX.current = (noseTip.x * canvas.width) - (jewelryWidth / 2);
+          imageY.current = (noseTip.y * canvas.height) + (faceWidth * 0.2); // Adjust Y position relative to face
+          imageScale.current = jewelryWidth / jewelryImageRef.current.width;
+
+          // Draw the jewelry image scaled and positioned
+          context.drawImage(
+            jewelryImageRef.current,
+            imageX.current,
+            imageY.current,
+            jewelryWidth,
+            jewelryHeight
+          );
+        }
+      }
+    }
+
+    context.restore();
+  }, [canvasRef, videoRef, webcamEnabled, tryOnMode, jewelryImageRef, imageX, imageY, imageScale]);
+
+  const drawCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext('2d');
+    const video = videoRef.current;
+    if (!canvas || !context || !video) return;
+
+    context.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (webcamEnabled) {
+      context.translate(canvas.width, 0);
+      context.scale(-1, 1);
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      context.setTransform(1, 0, 0, 1, 0, 0); // Reset transform for jewelry
+    }
+
+    if (tryOnMode && jewelryImageRef.current.complete) {
+      context.drawImage(
+        jewelryImageRef.current,
+        imageX.current,
+        imageY.current,
+        jewelryImageRef.current.width * imageScale.current,
+        jewelryImageRef.current.height * imageScale.current
+      );
+    }
+  }, [canvasRef, videoRef, webcamEnabled, tryOnMode, jewelryImageRef, imageX, imageY, imageScale]);
+
+  const onMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!tryOnMode) return;
+    isDragging.current = true;
+    lastX.current = e.clientX;
+    lastY.current = e.clientY;
+  }, [tryOnMode]);
+
+  const onMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!tryOnMode || !isDragging.current) return;
+    const dx = e.clientX - lastX.current;
+    const dy = e.clientY - lastY.current;
+    imageX.current += dx;
+    imageY.current += dy;
+    lastX.current = e.clientX;
+    lastY.current = e.clientY;
+    drawCanvas();
+  }, [tryOnMode, drawCanvas]);
+
+  const onMouseUp = useCallback(() => {
+    isDragging.current = false;
+  }, []);
+
+  const onMouseLeave = useCallback(() => {
+    isDragging.current = false;
+  }, []);
+
+  const onWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
+    if (!tryOnMode) return;
+    e.preventDefault();
+    const scaleAmount = 0.05;
+    const newScale = e.deltaY < 0 ? imageScale.current * (1 + scaleAmount) : imageScale.current * (1 - scaleAmount);
+    // Optional: add min/max scale limits
+    imageScale.current = Math.max(0.1, Math.min(newScale, 5.0)); // Limit scale between 0.1 and 5.0
+    drawCanvas();
+  }, [tryOnMode, drawCanvas]);
+
+  const toggleTryOnMode = () => {
+    setTryOnMode(prev => !prev);
+    setWebcamEnabled(prev => !prev); // Toggle webcam along with try-on mode
+    setError(null); // Clear any previous errors
+  };
+
   const handleSaveDesign = async () => {
     if (!user) {
       toast({ title: "Not Logged In", description: "You must be logged in to save designs.", variant: "destructive" });
@@ -157,7 +331,6 @@ export default function ProductDetailsPage() {
     }
   };
 
-
   if (!isMounted || authLoading) {
     return (
       <div className="flex justify-center items-center min-h-[60vh]">
@@ -188,7 +361,6 @@ export default function ProductDetailsPage() {
     );
   }
 
-
   return (
     <div className="space-y-8 pb-16">
         <div className="flex flex-wrap justify-between items-center gap-2 mb-2">
@@ -213,7 +385,6 @@ export default function ProductDetailsPage() {
             )}
         </div>
 
-
       <Card className="shadow-xl overflow-hidden">
         <CardHeader className="bg-card border-b pb-4">
           <CardTitle className="text-3xl font-semibold text-foreground flex items-center">
@@ -222,18 +393,38 @@ export default function ProductDetailsPage() {
         </CardHeader>
         <CardContent className="p-6">
           <div className="grid md:grid-cols-2 gap-8 items-start">
-            {/* Left Column: Main Image */}
-            <div>
-              {mainImageUri ? (
-                <div className="text-center">
-                  <h2 className="text-xl font-semibold text-foreground mb-4">Main Generated View</h2>
-                  <div className="relative w-full max-w-md mx-auto aspect-square bg-muted/30 rounded-lg shadow-md overflow-hidden">
-                    <Image src={mainImageUri} alt="Main customized jewelry" layout="fill" objectFit="contain" className="p-2" />
+            {/* Left Column: Main Image / Try-On View */}
+            <div className="flex flex-col items-center">
+              <h2 className="text-xl font-semibold text-foreground mb-4">{tryOnMode ? "Live Try-On" : "Main Generated View"}</h2>
+              <div className="relative w-full max-w-md mx-auto aspect-square bg-muted/30 rounded-lg shadow-md overflow-hidden">
+                {!tryOnMode && mainImageUri ? (
+                  <Image src={mainImageUri} alt="Main customized jewelry" layout="fill" objectFit="contain" className="p-2" />
+                ) : tryOnMode ? (
+                  <div className="relative w-full h-full">
+                    <video ref={videoRef} className="absolute top-0 left-0 w-full h-full object-cover" autoPlay playsInline></video>
+                    <canvas
+                      ref={canvasRef}
+                      className="absolute top-0 left-0 w-full h-full"
+                      width={640} // Match video dimensions for consistency
+                      height={480}
+                      onMouseDown={onMouseDown}
+                      onMouseMove={onMouseMove}
+                      onMouseUp={onMouseUp}
+                      onMouseLeave={onMouseLeave}
+                      onWheel={onWheel}
+                    ></canvas>
                   </div>
-                </div>
-              ) : (
-                !error && <Skeleton className="w-full max-w-md mx-auto h-96 rounded-lg" /> 
-              )}
+                ) : (
+                  !error && <Skeleton className="w-full max-w-md mx-auto h-96 rounded-lg" />
+                )}
+              </div>
+              <Button
+                onClick={toggleTryOnMode}
+                variant="outline"
+                className="mt-4 w-full max-w-md"
+              >
+                {tryOnMode ? "Exit Try-On" : "Try-On with Webcam"}
+              </Button>
             </div>
 
             {/* Right Column: AI Description and Variations */}

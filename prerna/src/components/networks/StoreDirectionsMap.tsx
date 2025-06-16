@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, RefreshCcw } from 'lucide-react';
 import { useLoadScript, GoogleMap, MarkerF, InfoWindowF } from '@react-google-maps/api';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -43,6 +43,13 @@ export const StoreDirectionsMap: React.FC<StoreDirectionsMapProps> = ({ storeNam
     window.open(url, '_blank');
   };
 
+  const handleRecenter = () => {
+    if (mapInstance) {
+      const newCenter = new google.maps.LatLng(storeLat, storeLng);
+      mapInstance.panTo(newCenter);
+    }
+  };
+
   return (
     <div className="w-full flex flex-col md:flex-row gap-4">
       <div className="w-full flex flex-col">
@@ -83,11 +90,18 @@ export const StoreDirectionsMap: React.FC<StoreDirectionsMapProps> = ({ storeNam
         {loading && <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">Loading map...</div>}
         {error && <div className="text-red-500 mt-2">{error}</div>}
 
-        {storeLat !== 0 && storeLng !== 0 && !loading && !error && (
-          <Button onClick={handleGetFullDirections} variant="outline" className="mt-4 w-full">
-            <ExternalLink className="mr-2 h-4 w-4" /> Get Full Directions on Google Maps
-          </Button>
-        )}
+        <div className="flex flex-col sm:flex-row gap-2 mt-4 w-full">
+          {isLoaded && mapInstance && (
+            <Button onClick={handleRecenter} variant="outline" className="w-full sm:w-auto">
+              <RefreshCcw className="mr-2 h-4 w-4" /> Recenter Map
+            </Button>
+          )}
+          {storeLat !== 0 && storeLng !== 0 && !loading && !error && (
+            <Button onClick={handleGetFullDirections} variant="outline" className="w-full sm:w-auto">
+              <ExternalLink className="mr-2 h-4 w-4" /> Get Full Directions on Google Maps
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

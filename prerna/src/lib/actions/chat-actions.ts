@@ -331,9 +331,12 @@ export async function updateMessageAction(
 
     console.log(`[ChatAction] User ${user.id} is authorized to update message ${messageId}. Proceeding with DB update.`);
 
+    const updatePayload = { content: newContent, updated_at: new Date().toISOString() };
+    console.log("[ChatAction] Update payload being sent to Supabase:", updatePayload);
+
     const { error } = await supabase
       .from('chat_messages')
-      .update({ content: newContent, updated_at: new Date().toISOString() })
+      .update(updatePayload)
       .eq('id', messageId);
 
     if (error) {

@@ -19,6 +19,7 @@ import { Mic, MicOff, StopCircle as LucideMicOff, Mic as LucideMic } from 'lucid
 import supabase from '@/lib/supabaseClient';
 import { useAuth } from '@/hooks/useAuth';
 import { saveDesignAction } from '@/lib/actions/supabase-actions';
+import Script from "next/script"; // Import Script for external JS
 
 // Utility function to convert File to Data URI
 const fileToDataUri = (file: File): Promise<string> => {
@@ -406,7 +407,7 @@ export default function CustomizerPage() {
 
   const submitButtonText = baseImageDataUri ? "Refine This Design" : "Generate New Design";
   const submitButtonDisabled = isLoading || isEnhancingPrompt ||
-                               (!isCustomizationProvided() && !baseImageUri) ||
+                               (!isCustomizationProvided() && !baseImageDataUri) ||
                                (baseImageDataUri && !isCustomizationProvided() && !baseImageFile); 
 
   return (

@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { JewelryCard, type JewelryItem as JewelryItemType } from '@/components/networks/jewelry-card';
 import type { Store as StoreType } from '@/components/networks/store-card';
 import { getProfile, getJewelryItemsByBusiness } from '@/lib/actions/supabase-actions';
-import { ArrowLeft, MapPin, PackageSearch, AlertTriangle, ShoppingBag, Loader2, MessageSquare, Star, Info } from 'lucide-react'; 
+import { ArrowLeft, MapPin, PackageSearch, AlertTriangle, ShoppingBag, Loader2, MessageSquare, Star, Info, Eye } from 'lucide-react'; 
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from "@/hooks/use-toast";
@@ -20,6 +20,7 @@ import supabase from '@/lib/supabaseClient';
 import { DirectionBar } from "@/components/ui/DirectionBar";
 import dynamic from 'next/dynamic';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 
 const StoreDirectionsMap = dynamic(() => import('@/components/networks/StoreDirectionsMap').then(mod => mod.default), { ssr: false });
 
@@ -152,6 +153,32 @@ export default function StoreDetailPage() {
     }
   };
 
+  // New function to handle AR Try On button click
+  const handleTryOn = (imageUrl: string, description: string) => {
+    try {
+      sessionStorage.setItem('productDetailsImageUri', imageUrl);
+      sessionStorage.setItem('productDetailsPrompt', description);
+      sessionStorage.setItem('activateTryOnMode', 'true'); // Set flag for auto-activation
+      router.push('/dashboard/product-details');
+    } catch (e) {
+      console.error("Error using sessionStorage for try-on:", e);
+      toast({
+        title: "Try-On Error",
+        description: "Could not prepare try-on. Your browser might be blocking session storage or it's full.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const canChatWithBusiness = currentUserProfile?.role === 'individual' && storeDetails && currentUserProfile.id !== storeDetails.id;
+
+  const handleScrollToReviews = () => {
+    const reviewsSection = document.getElementById('customer-reviews');
+    if (reviewsSection) {
+      reviewsSection.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
   if (isLoadingStoreDetails) {
     return (
       <div className="space-y-6">
@@ -167,37 +194,35 @@ export default function StoreDetailPage() {
 
   if (error) {
     return (
-      <Card className="border-destructive bg-destructive/10 mt-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-destructive">
-            <AlertTriangle className="h-6 w-6" /> Error Loading Store
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-destructive">{error}</p>
+      <Alert variant="destructive" className="mt-6">
+        <AlertTitle className="flex items-center gap-2">
+          <AlertTriangle className="h-6 w-6" /> Error Loading Store
+        </AlertTitle>
+        <AlertDescription>
+          <p>{error}</p>
           <Button variant="outline" asChild className="mt-4">
             <Link href="/dashboard/networks">
               <ArrowLeft className="mr-2 h-4 w-4" /> Back to Networks
             </Link>
           </Button>
-        </CardContent>
-      </Card>
+        </AlertDescription>
+      </Alert>
     );
   }
 
   if (!storeDetails) {
      return (
-      <Card className="border-destructive bg-destructive/10 mt-6">
-        <CardHeader><CardTitle className="flex items-center gap-2 text-destructive"><AlertTriangle className="h-6 w-6" />Store Not Found</CardTitle></CardHeader>
-        <CardContent>
-          <p className="text-destructive">The requested store could not be found after loading.</p>
+      <Alert variant="default" className="mt-6">
+        <AlertTitle className="flex items-center gap-2">
+          <AlertTriangle className="h-6 w-6" /> Store Not Found
+        </AlertTitle>
+        <AlertDescription>
+          <p>The requested store could not be found after loading.</p>
            <Button variant="outline" asChild className="mt-4"><Link href="/dashboard/networks"><ArrowLeft className="mr-2 h-4 w-4" /> Back to Networks</Link></Button>
-        </CardContent>
-      </Card>
+        </AlertDescription>
+      </Alert>
     );
   }
-
-  const canChatWithBusiness = currentUserProfile?.role === 'individual' && storeDetails && currentUserProfile.id !== storeDetails.id;
 
   return (
     <div className="space-y-8">
@@ -233,25 +258,32 @@ export default function StoreDetailPage() {
             </div>
         </div>
         <CardContent className="p-6">
-            <div className="flex items-center text-muted-foreground mb-2">
-                <MapPin className="h-5 w-5 mr-2 text-primary shrink-0" />
-                <span>{storeDetails.address}</span>
-            </div>            <p className="text-sm text-foreground">
-              Registered as: <span className="font-semibold ml-1">{storeDetails.type}</span>{' '}
-              {reviewCount > 0 && (
-                <span className="text-muted-foreground">
-                  • <Star className="inline h-4 w-4 text-yellow-500" /> {avgRating.toFixed(1)} ({reviewCount} {reviewCount === 1 ? 'review' : 'reviews'})
-                </span>
-              )}
-            </p>
-             {currentUserProfile?.role === 'individual' && storeDetails.id !== currentUserProfile.id && (
-               <div className="mt-4">
-                 <Button variant="default" className="btn-primary-sparkle" onClick={handleChatWithBusiness}>
-                   <MessageSquare className="mr-2 h-4 w-4" /> Chat with this Business
-                 </Button>
-                 <DirectionBar />
-               </div>
-             )}
+          <p className="text-muted-foreground mb-4">{storeDetails.address}</p>
+
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <Badge variant="outline" className="flex items-center"><MapPin className="h-3 w-3 mr-1" /> {storeDetails.type}</Badge>
+            {avgRating > 0 && (
+              <Badge variant="secondary" className="flex items-center">
+                <Star className="h-3 w-3 mr-1 fill-current text-yellow-500" /> {avgRating.toFixed(1)} ({reviewCount} reviews)
+              </Badge>
+            )}
+          </div>
+          
+          <div className="flex flex-wrap gap-2 mt-4">
+            {canChatWithBusiness && (
+              <Button onClick={handleChatWithBusiness} className="w-full sm:w-auto">
+                <MessageSquare className="mr-2 h-4 w-4" /> Chat with this Business
+              </Button>
+            )}
+            {storeDetails.latitude && storeDetails.longitude && (
+                <DirectionBar
+                    latitude={storeDetails.latitude}
+                    longitude={storeDetails.longitude}
+                    storeName={storeDetails.name}
+                    storeAddress={storeDetails.address}
+                />
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -261,7 +293,7 @@ export default function StoreDetailPage() {
         </h2>
         <StoreDirectionsMap storeName={storeDetails.name} storeLat={storeDetails.latitude} storeLng={storeDetails.longitude} />
         {storeDetails.latitude === 0 && storeDetails.longitude === 0 && (
-          <Alert variant="info" className="mt-4">
+          <Alert variant="default" className="mt-4">
             <Info className="h-4 w-4" />
             <AlertTitle>Location Not Available</AlertTitle>
             <AlertDescription>
@@ -282,9 +314,29 @@ export default function StoreDetailPage() {
               {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-72 w-full rounded-lg" />)}
             </div>
         ) : storeItems.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {storeItems.map(item => (
-              <JewelryCard key={item.id} {...item} />
+              <div key={item.id} className="relative overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col h-full">
+                {/* The main card part, clickable to view details */}
+                <Link href={`/dashboard/product-details`} onClick={() => {
+                    sessionStorage.setItem('productDetailsImageUri', item.imageUrl);
+                    sessionStorage.setItem('productDetailsPrompt', item.description);
+                    sessionStorage.removeItem('activateTryOnMode'); // Important: clear this if navigating normally
+                }} className="block flex-grow"> {/* `block` and `flex-grow` to make link fill space */}
+                  <JewelryCard {...item} className="h-full" /> {/* Ensure JewelryCard takes full height */}
+                </Link>
+                {/* The AR Try On button */}
+                <div className="p-4 pt-0"> {/* Use padding to align with CardContent */}
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => handleTryOn(item.imageUrl, item.description)}
+                    className="w-full btn-primary-sparkle"
+                  >
+                    <Eye className="mr-2 h-4 w-4" /> AR Try On
+                  </Button>
+                </div>
+              </div>
             ))}
           </div>
         ) : (
@@ -296,10 +348,14 @@ export default function StoreDetailPage() {
         )}
       </div>
 
-      <StoreReviews storeId={storeId} onRatingUpdate={() => setRefreshReviews(prev => prev + 1)} />
-
       {currentUserProfile?.role === 'individual' && user?.id && (
         <ReviewForm storeId={storeId} onReviewAdded={() => setRefreshReviews(prev => prev + 1)} />
+      )}
+
+      {reviewCount > 0 && (
+        <Button onClick={handleScrollToReviews} variant="outline" className="w-full sm:w-auto mx-auto mt-4">
+          <Eye className="mr-2 h-4 w-4" /> View Reviews ({reviewCount})
+        </Button>
       )}
     </div>
   );
@@ -360,7 +416,7 @@ function StoreReviews({ storeId, onRatingUpdate }: { storeId: string, onRatingUp
   console.log("Current editingReview state:", editingReview); // Debug log for editingReview state
 
   return (
-    <div className="mt-6 space-y-4">
+    <div id="customer-reviews" className="mt-6 space-y-4">
       <h2 className="text-2xl font-semibold mb-4">Customer Reviews</h2>
       {editingReview && reviewToEdit ? (
         <EditReviewForm

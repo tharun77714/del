@@ -1,9 +1,8 @@
-
 import Image from 'next/image';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { Gem, Palette, Tag } from 'lucide-react';
+import { Gem, Palette, Tag, Heart } from 'lucide-react';
 
 // Define a type for JewelryItem, consistent with what BusinessNetworkView saves
 export interface JewelryItem {
@@ -19,9 +18,11 @@ export interface JewelryItem {
 
 interface JewelryCardProps extends JewelryItem {
   className?: string;
+  isFavorited?: boolean; // New prop to indicate if the item is favorited
+  onToggleFavorite?: (item: JewelryItem, isCurrentlyFavorited: boolean) => void; // Updated prop for favorite action
 }
 
-export function JewelryCard({ name, type, style, material, description, imageUrl, dataAiHint, className }: JewelryCardProps) {
+export function JewelryCard({ id, name, type, style, material, description, imageUrl, dataAiHint, className, isFavorited = false, onToggleFavorite }: JewelryCardProps) {
   return (
     <Card className={cn("overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col h-full", className)}>
       <CardHeader className="p-0">
@@ -34,6 +35,17 @@ export function JewelryCard({ name, type, style, material, description, imageUrl
             className="transition-transform duration-300 group-hover:scale-105"
             data-ai-hint={dataAiHint || name.toLowerCase().split(' ').slice(0,2).join(' ')}
           />
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation(); // Prevent card click from triggering
+              onToggleFavorite?.({ id, name, type, style, material, description, imageUrl, dataAiHint }, isFavorited);
+            }}
+            className="absolute top-2 right-2 p-2 rounded-full bg-background/80 text-primary-foreground shadow-md hover:bg-background transition-colors duration-200"
+            aria-label={isFavorited ? "Remove from favorites" : "Add to favorites"}
+          >
+            <Heart className={cn("h-5 w-5", isFavorited ? "fill-red-500 text-red-500" : "text-muted-foreground")} />
+          </button>
         </div>
       </CardHeader>
       <CardContent className="p-4 flex-grow">

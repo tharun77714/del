@@ -12,7 +12,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
-import { updateIndividualProfile, getSavedDesignsByUserIdAction, type SavedDesign, getUserReviewsWithStoreInfo, type Profile, type UserReviewWithStore } from '@/lib/actions/supabase-actions';
+import type { Profile } from '@/contexts/AuthContext';
+import { updateIndividualProfile, getSavedDesignsByUserIdAction, type SavedDesign, getUserReviewsWithStoreInfo, type UserReviewWithStore } from '@/lib/actions/supabase-actions';
 import { Loader2, Save, Edit, UserCircle, Mail, MapPin, Phone, User, GalleryHorizontal, FileImage, Palette, Heart, Star } from 'lucide-react';
 import { AddressAutocompleteInput } from '@/components/common/address-autocomplete-input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -20,6 +21,13 @@ import { Separator } from '@/components/ui/separator';
 import { format } from 'date-fns';
 import supabase from '@/lib/supabaseClient';
 import { calculateStoreRating } from '@/lib/utils/ratings';
+import { JewelryCard, type JewelryItem } from '@/components/networks/jewelry-card';
+
+// Helper function to validate UUID format
+const isValidUUID = (uuid: string) => {
+  const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[4][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
+  return uuidRegex.test(uuid);
+};
 
 const individualProfileSchema = z.object({
   full_name: z.string().min(2, "Full name is required."),
@@ -47,11 +55,11 @@ export default function IndividualProfilePage() {
   const [savedDesigns, setSavedDesigns] = useState<SavedDesign[]>([]);
   const [isLoadingSavedDesigns, setIsLoadingSavedDesigns] = useState(true);
   const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-  const [likedDesigns, setLikedDesigns] = useState<any[]>([]);
-  const [refreshSaved, setRefreshSaved] = useState(0);
-  const [reviewedStores, setReviewedStores] = useState<ReviewedStore[]>([]);
   const [isLoadingReviewedStores, setIsLoadingReviewedStores] = useState(true);
+  const [reviewedStores, setReviewedStores] = useState<ReviewedStore[]>([]);
   const [refreshReviews, setRefreshReviews] = useState(0);
+  const [favoritedDesigns, setFavoritedDesigns] = useState<JewelryItem[]>([]);
+  const [isLoadingFavoritedDesigns, setIsLoadingFavoritedDesigns] = useState(true);
 
   const form = useForm<IndividualProfileFormValues>({
     resolver: zodResolver(individualProfileSchema),
@@ -97,13 +105,80 @@ export default function IndividualProfilePage() {
   }, [user, profile, toast]);
   
   useEffect(() => {
-    async function fetchLiked() {
-      if (!user) return;
-      const { data, error } = await supabase.from('saved_designs').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
-      if (!error && data) setLikedDesigns(data);
-    }
-    fetchLiked();
-  }, [user, refreshSaved]);
+    const fetchFavoritedDesigns = async () => {
+      if (!user) {
+        setFavoritedDesigns([]);
+        setIsLoadingFavoritedDesigns(false);
+        return;
+      }
+
+      setIsLoadingFavoritedDesigns(true);
+      try {
+        const { data: userFavoritesData, error: userFavoritesError } = await supabase
+          .from('user_favorites')
+          .select('item_id')
+          .eq('user_id', user.id);
+
+        if (userFavoritesError) {
+          console.error("Error fetching user favorites IDs:", userFavoritesError);
+          toast({
+            title: "Error loading favorite designs",
+            description: `Could not load your favorite designs IDs: ${userFavoritesError.message}`,
+            variant: "destructive",
+          });
+          setFavoritedDesigns([]);
+          return;
+        }
+
+        if (!userFavoritesData || userFavoritesData.length === 0) {
+          setFavoritedDesigns([]);
+          setIsLoadingFavoritedDesigns(false);
+          return;
+        }
+
+        const favoritedItemIds = userFavoritesData
+          .map(f => f.item_id)
+          .filter(isValidUUID); // Filter out invalid UUIDs
+
+        if (favoritedItemIds.length === 0) {
+          setFavoritedDesigns([]);
+          setIsLoadingFavoritedDesigns(false);
+          return;
+        }
+        
+        const { data: jewelryItemsData, error: jewelryItemsError } = await supabase
+          .from('jewelry_items')
+          .select('*')
+          .in('id', favoritedItemIds);
+
+        if (jewelryItemsError) {
+          console.error("Error fetching jewelry items details:", jewelryItemsError);
+          toast({
+            title: "Error loading favorite designs",
+            description: `Could not load details for your favorite designs: ${jewelryItemsError.message}`,
+            variant: "destructive",
+          });
+          setFavoritedDesigns([]);
+          return;
+        }
+        
+        setFavoritedDesigns(jewelryItemsData as JewelryItem[] || []);
+
+      } catch (error: any) {
+        console.error("Unexpected error fetching favorite designs:", error);
+        toast({
+          title: "Error loading favorite designs",
+          description: "An unexpected error occurred while loading your favorite designs.",
+          variant: "destructive",
+        });
+        setFavoritedDesigns([]);
+      } finally {
+        setIsLoadingFavoritedDesigns(false);
+      }
+    };
+
+    fetchFavoritedDesigns();
+  }, [user, toast]);
 
   useEffect(() => {
     async function fetchReviewedStores() {
@@ -171,7 +246,6 @@ export default function IndividualProfilePage() {
       await refreshProfile();
       toast({ title: "Success", description: "Profile updated successfully." });
       setIsEditingProfile(false);
-      setRefreshSaved(r => r + 1);
     } catch (error: any) {
       toast({ title: "Error", description: error.message || "Failed to update profile.", variant: "destructive" });
     } finally {
@@ -368,27 +442,33 @@ export default function IndividualProfilePage() {
         )}
       </div>
 
-      <div className="mt-8">
-        <h2 className="text-xl font-semibold mb-4">Favourite Designs</h2>
-        {likedDesigns.length === 0 ? (
-          <p className="text-muted-foreground">You haven't favourited or saved any designs yet.</p>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            {likedDesigns.map(design => (
-              <div key={design.id} className="border rounded-lg overflow-hidden relative group">
-                <img src={design.image_url} alt={design.description} className="w-full h-40 object-contain bg-muted" />
-                <button
-                  className="absolute top-2 right-2 bg-white/80 rounded-full p-1 shadow group-hover:bg-white"
-                  title="Favourite"
-                  type="button"
-                >
-                  <Heart className="h-5 w-5 text-pink-500" fill="currentColor" />
-                </button>
-                <div className="p-2 text-xs text-muted-foreground">{design.description}</div>
-              </div>
-            ))}
-          </div>
-        )}
+      <Separator />
+
+      <div>
+        <h2 className="font-headline text-xl flex items-center mb-4"><Heart className="mr-2 h-5 w-5 text-accent"/> Your Favourite Designs</h2>
+        <Card className="shadow-lg">
+          {isLoadingFavoritedDesigns ? (
+            <CardContent className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 p-4">
+              {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-64 w-full" />)}
+            </CardContent>
+          ) : favoritedDesigns.length > 0 ? (
+            <CardContent className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 p-4">
+              {favoritedDesigns.map(item => (
+                <JewelryCard 
+                  key={item.id} 
+                  {...item} 
+                  isFavorited={true}
+                />
+              ))}
+            </CardContent>
+          ) : (
+            <CardContent className="p-4 text-center text-muted-foreground">
+              <Heart className="mx-auto h-12 w-12 mb-4 text-gray-400" />
+              <p>You haven't favorited any designs yet.</p>
+              <p>Explore our jewelry and click the heart icon to add them to your favorites!</p>
+            </CardContent>
+          )}
+        </Card>
       </div>
     </div>
   );

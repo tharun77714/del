@@ -1,9 +1,10 @@
-
 import type { Metadata } from 'next';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster"
 import { AuthProvider } from '@/contexts/AuthContext'; // Import AuthProvider
 import { ChatProvider } from '@/contexts/ChatContext'; // Import ChatProvider
+import { ReviewsProvider } from '@/contexts/ReviewsContext'; // Import ReviewsProvider
+import { ReviewsSidebar } from '@/components/reviews/ReviewsSidebar'; // Import ReviewsSidebar
 
 export const metadata: Metadata = {
   title: 'Sparkle Studio',
@@ -28,8 +29,11 @@ export default function RootLayout({
       <body className="font-body antialiased">
         <AuthProvider>
           <ChatProvider> {/* Wrap children with ChatProvider inside AuthProvider */}
-            {children}
-            <Toaster />
+            <ReviewsProvider> {/* Wrap children with ReviewsProvider inside ChatProvider */}
+              {children}
+              <Toaster />
+              <ReviewsSidebar />
+            </ReviewsProvider>
           </ChatProvider>
         </AuthProvider>
       </body>

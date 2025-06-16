@@ -11,9 +11,10 @@ interface AddressAutocompleteInputProps {
   onPlaceSelectedAction: (placeDetails: { address: string; latitude: number; longitude: number } | null) => void;
   initialValue?: string;
   className?: string;
+  onInputChange?: (value: string) => void;
 }
 
-export function AddressAutocompleteInput({ apiKey, onPlaceSelectedAction, initialValue = "", className }: AddressAutocompleteInputProps) {
+export function AddressAutocompleteInput({ apiKey, onPlaceSelectedAction, initialValue = "", className, onInputChange }: AddressAutocompleteInputProps) {
   const libraries: ("places" | "drawing" | "geometry" | "visualization")[] = ['places'];
   const { isLoaded, loadError } = useLoadScript({
     googleMapsApiKey: apiKey || "",
@@ -85,7 +86,8 @@ export function AddressAutocompleteInput({ apiKey, onPlaceSelectedAction, initia
         types: ['geocode'], // Allow both cities and addresses
         // Remove country restriction for global search
       }}
-      defaultValue={initialValue}
+      value={initialValue}
+      onChange={(e: React.ChangeEvent<HTMLInputElement>) => onInputChange?.(e.target.value)}
       className={cn(
         "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-base ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
         className

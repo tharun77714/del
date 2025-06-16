@@ -168,6 +168,7 @@ export const ChatProvider: React.FC<ChatProviderProps> = ({ children }) => {
               toast({ title: "New Message", description: `From: ${changedMessage.sender_id === activeConversationTargetProfile?.id ? activeConversationTargetProfile.business_name || activeConversationTargetProfile.full_name : 'Someone'}` });
               break;
             case 'UPDATE':
+              console.log("[ChatContext] Realtime UPDATE event received:", changedMessage);
               // If the updated message belongs to the currently active conversation, update it in the UI
               if (changedMessage.conversation_id === activeConversationId) {
                 setMessages(prevMessages =>

@@ -23,12 +23,14 @@ import { AddressAutocompleteInput } from '@/components/common/address-autocomple
 import type { Profile } from '@/contexts/AuthContext'; // Ensure correct Profile type import
 import supabase from '@/lib/supabaseClient'; // Import supabase client
 import { calculateStoreRating } from '@/lib/utils/ratings'; // Import calculateStoreRating
+import { useAuth } from '@/hooks/useAuth'; // Import useAuth
+import type { JewelryItem } from './jewelry-card'; // Import JewelryItem type
 
 const mockFeaturedJewelry = [
-  { id: '1', name: 'Elegant Diamond Necklace', type: 'Necklace', style: 'Classic', material: 'Diamond, White Gold', description: 'A timeless piece for special occasions.', imageUrl: 'https://placehold.co/600x400.png', dataAiHint: 'diamond necklace' },
-  { id: '2', name: 'Bohemian Feather Earrings', type: 'Earrings', style: 'Boho', material: 'Silver, Feather', description: 'Lightweight and stylish for a free spirit.', imageUrl: 'https://placehold.co/600x400.png', dataAiHint: 'boho earrings' },
-  { id: '3', name: 'Minimalist Gold Bangle', type: 'Bracelet', style: 'Minimalist', material: 'Gold', description: 'Sleek and modern, perfect for everyday wear.', imageUrl: 'https://placehold.co/600x400.png', dataAiHint: 'gold bangle' },
-  { id: '4', name: 'Vintage Sapphire Ring', type: 'Ring', style: 'Vintage', material: 'Sapphire, Platinum', description: 'An exquisite ring with a touch of history.', imageUrl: 'https://placehold.co/600x400.png', dataAiHint: 'sapphire ring' },
+  { id: crypto.randomUUID(), name: 'Elegant Diamond Necklace', type: 'Necklace', style: 'Classic', material: 'Diamond, White Gold', description: 'A timeless piece for special occasions.', imageUrl: 'https://placehold.co/600x400.png', dataAiHint: 'diamond necklace' },
+  { id: crypto.randomUUID(), name: 'Bohemian Feather Earrings', type: 'Earrings', style: 'Boho', material: 'Silver, Feather', description: 'Lightweight and stylish for a free spirit.', imageUrl: 'https://placehold.co/600x400.png', dataAiHint: 'boho earrings' },
+  { id: crypto.randomUUID(), name: 'Minimalist Gold Bangle', type: 'Bracelet', style: 'Minimalist', material: 'Gold', description: 'Sleek and modern, perfect for everyday wear.', imageUrl: 'https://placehold.co/600x400.png', dataAiHint: 'gold bangle' },
+  { id: crypto.randomUUID(), name: 'Vintage Sapphire Ring', type: 'Ring', style: 'Vintage', material: 'Sapphire, Platinum', description: 'An exquisite ring with a touch of history.', imageUrl: 'https://placehold.co/600x400.png', dataAiHint: 'sapphire ring' },
 ];
 
 const NEARBY_RADIUS_KM = 50;
@@ -50,9 +52,10 @@ export function IndividualNetworkView() {
   const [locationError, setLocationError] = useState<string | null>(null);
   const [activeSearchType, setActiveSearchType] = useState<'ai' | 'store_keyword' | 'store_gps' | 'store_address_radius' | 'none'>('none');
   const [searchOrigin, setSearchOrigin] = useState<'manual' | 'autocomplete_address'>('manual');
-
+  const [userFavorites, setUserFavorites] = useState<string[]>([]); // New state for user favorites
 
   const { toast } = useToast();
+  const { user } = useAuth(); // Get current user from AuthContext
   const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   const libraries: ("places" | "drawing" | "geometry" | "visualization")[] = ['places'];
 
@@ -61,6 +64,20 @@ export function IndividualNetworkView() {
     libraries,
     preventGoogleFontsLoading: true,
   });
+
+  // Memoized list of AI suggested jewelry items with generated IDs
+  const aiJewelryItems: JewelryItem[] = useMemo(() => {
+    return aiSuggestions.map((suggestion, index) => ({
+      id: crypto.randomUUID(), // Generate a UUID for each AI suggestion
+      name: `${suggestion.style} ${suggestion.type}`,
+      type: suggestion.type,
+      style: suggestion.style,
+      material: suggestion.material,
+      description: suggestion.description,
+      imageUrl: `https://placehold.co/300x200.png`, // Assuming a default placeholder for AI generated items
+      // dataAiHint is not provided by aiSuggestions, so omit it
+    }));
+  }, [aiSuggestions]);
 
   const transformProfileToStore = (profile: Profile): StoreType => {
     return {
@@ -105,6 +122,100 @@ export function IndividualNetworkView() {
     fetchStores();
   }, [toast]);
 
+  // New useEffect to fetch user favorites
+  useEffect(() => {
+    const fetchFavorites = async () => {
+      if (user) {
+        const { data, error } = await supabase
+          .from('user_favorites')
+          .select('item_id')
+          .eq('user_id', user.id);
+
+        if (error) {
+          console.error("Error fetching favorites:", error);
+          toast({
+            title: "Error loading favorites",
+            description: "Could not load your favorited items.",
+            variant: "destructive",
+          });
+        } else if (data) {
+          setUserFavorites(data.map(f => f.item_id));
+        }
+      }
+    };
+    fetchFavorites();
+  }, [user, toast]);
+
+  const handleToggleFavorite = async (item: JewelryItem, isCurrentlyFavorited: boolean) => {
+    if (!user) {
+      toast({
+        title: "Not logged in",
+        description: "Please log in to add items to your favorites.",
+        variant: "default",
+      });
+      return;
+    }
+
+    if (isCurrentlyFavorited) {
+      // Remove from favorites
+      const { error } = await supabase
+        .from('user_favorites')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('item_id', item.id);
+
+      if (error) {
+        console.error("Error removing favorite:", error);
+        toast({
+          title: "Error removing favorite",
+          description: "Could not remove item from favorites.",
+          variant: "destructive",
+        });
+      } else {
+        setUserFavorites(prev => prev.filter(id => id !== item.id));
+        toast({ title: "Removed from favorites", description: "Item successfully removed from your favorites.", variant: "default" });
+      }
+    } else {
+      // Add to favorites - First, upsert the item details into jewelry_items table
+      const { error: upsertError } = await supabase
+        .from('jewelry_items')
+        .upsert({
+          id: item.id,
+          name: item.name,
+          style: item.style,
+          material: item.material,
+          description: item.description,
+          image_url: item.imageUrl,
+        }, { onConflict: 'id' }); // Conflict on 'id' to update if exists
+
+      if (upsertError) {
+        console.error("Error upserting jewelry item:", upsertError.message); // Log the specific error message
+        toast({
+          title: "Error saving item details",
+          description: `Could not save item details for favoriting: ${upsertError.message}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Then, add to user_favorites
+      const { error: favoriteError } = await supabase
+        .from('user_favorites')
+        .insert({ user_id: user.id, item_id: item.id });
+
+      if (favoriteError) {
+        console.error("Error adding favorite:", favoriteError);
+        toast({
+          title: "Error adding favorite",
+          description: "Could not add item to favorites.",
+          variant: "destructive",
+        });
+      } else {
+        setUserFavorites(prev => [...prev, item.id]);
+        toast({ title: "Added to favorites", description: "Item successfully added to your favorites!", variant: "default" });
+      }
+    }
+  };
 
   const handleSearchSubmit = async (event?: React.FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
@@ -250,12 +361,23 @@ export function IndividualNetworkView() {
           message = "The request to get user location timed out.";
         }
         setLocationError(message);
-        setUserLocation(null);
-        setDisplayedStores(allRegisteredStores.map(s => ({...s, distance: undefined }))); 
-        toast({ title: "Location Error", description: message, variant: "destructive" });
+        toast({ title: "Geolocation Error", description: message, variant: "destructive" });
         setIsLocating(false);
-      }
+        setUserLocation(null);
+        setDisplayedStores(allRegisteredStores); // Revert to showing all stores on geolocation error
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
+  };
+
+  const handleClearSearch = () => {
+    setSearchTerm('');
+    setAiSuggestions([]);
+    setUserLocation(null);
+    setSearchedLocationCoords(null);
+    setLocationError(null);
+    setActiveSearchType('none');
+    setDisplayedStores(allRegisteredStores); // Reset to all stores
   };
 
   const isLoadingCombinedState = isLoadingAi || isLocating || isLoadingStores;
@@ -324,6 +446,7 @@ export function IndividualNetworkView() {
                   }
                 }}
                 initialValue={searchTerm}
+                onInputChange={setSearchTerm}
                 className="flex-grow"
               />
             ) : (
@@ -334,10 +457,17 @@ export function IndividualNetworkView() {
               Search
             </Button>
           </form>
-          <Button onClick={handleFindNearbyStores} disabled={isLoadingCombinedState} variant="outline" className="w-full sm:w-auto">
-            {isLocating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LocateFixed className="mr-2 h-4 w-4" />}
-            Find Nearby Registered Stores (GPS)
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button onClick={handleFindNearbyStores} disabled={isLoadingCombinedState} variant="outline" className="w-full sm:w-auto">
+              {isLocating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LocateFixed className="mr-2 h-4 w-4" />}
+              Find Nearby Registered Stores (GPS)
+            </Button>
+            {(searchTerm.trim() !== '' || activeSearchType !== 'none') && (
+              <Button onClick={handleClearSearch} disabled={isLoadingCombinedState} variant="ghost" className="w-full sm:w-auto">
+                Clear Search
+              </Button>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -387,18 +517,13 @@ export function IndividualNetworkView() {
              ) : (
                 <ScrollArea className="w-full">
                 <div className="flex space-x-4 pb-4">
-                    {aiSuggestions.map((item, index) => (
+                    {aiJewelryItems.map((item) => (
                     <JewelryCard 
-                        key={index.toString()} 
-                        id={index.toString()} 
-                        name={`${item.style} ${item.type}`} 
-                        type={item.type}
-                        style={item.style}
-                        material={item.material}
-                        description={item.description}
-                        imageUrl={`https://placehold.co/300x200.png`} 
-                        dataAiHint={`${item.style} ${item.type}`}
+                        key={item.id} 
+                        {...item} 
                         className="min-w-[280px] md:min-w-[320px]"
+                        isFavorited={userFavorites.includes(item.id)} 
+                        onToggleFavorite={(clickedItem, isCurrentlyFavorited) => handleToggleFavorite(clickedItem, isCurrentlyFavorited)} 
                     />
                     ))}
                 </div>
@@ -460,7 +585,12 @@ export function IndividualNetworkView() {
                 </CardHeader>
                 <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {mockFeaturedJewelry.map(item => (
-                    <JewelryCard key={item.id} {...item} />
+                    <JewelryCard 
+                        key={item.id} 
+                        {...item} 
+                        isFavorited={userFavorites.includes(item.id)} 
+                        onToggleFavorite={(clickedItem, isCurrentlyFavorited) => handleToggleFavorite(clickedItem, isCurrentlyFavorited)} 
+                    />
                 ))}
                 </CardContent>
             </Card>

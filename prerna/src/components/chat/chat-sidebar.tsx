@@ -161,7 +161,7 @@ export function ChatSidebar() {
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     console.log("handleSendMessage triggered."); // Debug log
-    const messageToSend = newMessage.trim();
+    const messageToSend = editingMessageId ? editingMessageContent.trim() : newMessage.trim();
 
     if (!messageToSend) {
       console.log("Message to send is empty, returning."); // Debug log

@@ -30,6 +30,27 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      config.resolve.alias = {
+        ...config.resolve.alias,
+        '@mediapipe/camera_utils': false,
+        '@mediapipe/face_mesh': false,
+        '@tensorflow/tfjs': false,
+      };
+
+      // Optionally, you might still need externals for some cases, but alias is more direct for 'module not found'
+      config.externals.push(
+        // @ts-ignore
+        '@mediapipe/camera_utils',
+        // @ts-ignore
+        '@mediapipe/face_mesh',
+        // @ts-ignore
+        '@tensorflow/tfjs'
+      );
+    }
+    return config;
+  },
 };
 
 export default nextConfig;

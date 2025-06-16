@@ -424,7 +424,10 @@ export async function getUserReviewsWithStoreInfo(userId: string): Promise<{ dat
     .from('store_reviews')
     .select(`
       *,
-      store:stores(id, name)
+      store:profiles!store_reviews_store_id_fkey (
+        id,
+        business_name
+      )
     `)
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
@@ -434,10 +437,51 @@ export async function getUserReviewsWithStoreInfo(userId: string): Promise<{ dat
     return { data: null, error: new Error(error.message) };
   }
 
-  // Filter out reviews where store data might be null due to RLS or missing store entry
-  const filteredData = data?.filter(review => review.store !== null) as UserReviewWithStore[] || [];
-  
-  return { data: filteredData, error: null };
+  // Ensure the store object is correctly structured and business_name is mapped to name
+  const formattedData = data?.map(review => ({
+    ...review,
+    store: review.store ? { id: review.store.id, name: review.store.business_name } : null
+  }));
+
+  return { data: formattedData as UserReviewWithStore[] || [], error: null };
+}
+
+export interface StoreReview {
+  id: string;
+  rating: number;
+  review_text: string;
+  created_at: string;
+  updated_at?: string;
+  status: 'pending' | 'approved';
+  store_id: string;
+  user_id: string;
+  profiles: {
+    full_name: string | null;
+    email: string | null;
+  };
+}
+
+export async function getUserReviewForStore(storeId: string, userId: string): Promise<{ data: StoreReview | null; error: Error | null }> {
+  const supabaseClient = await createSupabaseServerActionClient();
+  const { data, error } = await supabaseClient
+    .from('store_reviews')
+    .select(`
+      *,
+      profiles!store_reviews_user_id_fkey (
+        full_name,
+        email
+      )
+    `)
+    .eq('store_id', storeId)
+    .eq('user_id', userId)
+    .single();
+
+  if (error && error.code !== 'PGRST116') { // PGRST116 is 'No rows found'
+    console.error("Error fetching user's review for store:", error);
+    return { data: null, error: new Error(error.message) };
+  }
+
+  return { data: data as StoreReview | null, error: null };
 }
 
     

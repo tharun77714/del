@@ -19,6 +19,7 @@ export interface Message {
   message_type: 'text' | 'image';
   created_at: string; // ISO Date string
   is_read: boolean;
+  updated_at?: string;
   // Populated client-side or via join for display
   sender?: Pick<Profile, 'id' | 'full_name' | 'business_name' | 'role'>;
 }

@@ -2,18 +2,23 @@
 
 import { Button } from "@/components/ui/button";
 
-export function DirectionBar() {
+interface DirectionBarProps {
+  latitude: number;
+  longitude: number;
+  storeName: string;
+  storeAddress: string;
+}
+
+export function DirectionBar({ latitude, longitude, storeName, storeAddress }: DirectionBarProps) {
   const handleGetDirections = () => {
-    const storeLocation = "Your Store Address, City, State"; // Replace with actual store address or coordinates
-    const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(storeLocation)}`;
-    window.open(googleMapsUrl, "_blank");
+    const destination = `${latitude},${longitude}`;
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`;
+    window.open(url, "_blank");
   };
 
   return (
-    <div className="mt-8 text-center">
-      <Button onClick={handleGetDirections} className="px-6 py-3 text-lg">
-        Get Directions to Our Store
-      </Button>
-    </div>
+    <Button onClick={handleGetDirections} className="w-full sm:w-auto">
+      Get Directions to Our Store
+    </Button>
   );
 } 
