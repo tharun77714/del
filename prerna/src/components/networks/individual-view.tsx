@@ -52,7 +52,8 @@ export function IndividualNetworkView() {
   const [locationError, setLocationError] = useState<string | null>(null);
   const [activeSearchType, setActiveSearchType] = useState<'ai' | 'store_keyword' | 'store_gps' | 'store_address_radius' | 'none'>('none');
   const [searchOrigin, setSearchOrigin] = useState<'manual' | 'autocomplete_address'>('manual');
-  const [userFavorites, setUserFavorites] = useState<string[]>([]); // New state for user favorites
+  const [userFavorites, setUserFavorites] = useState<string[]>([]); // New state for user favorites (jewelry)
+  const [userFavoritedStores, setUserFavoritedStores] = useState<string[]>([]); // New state for user favorited stores
 
   const { toast } = useToast();
   const { user } = useAuth(); // Get current user from AuthContext
@@ -144,6 +145,32 @@ export function IndividualNetworkView() {
       }
     };
     fetchFavorites();
+  }, [user, toast]);
+
+  // New useEffect to fetch user favorited stores
+  useEffect(() => {
+    const fetchFavoritedStores = async () => {
+      if (!user) {
+        setUserFavoritedStores([]);
+        return;
+      }
+      const { data, error } = await supabase
+        .from('user_favorite_stores')
+        .select('store_id')
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.error("Error fetching favorited stores:", error);
+        toast({
+          title: "Error loading favorite stores",
+          description: "Could not load your favorited stores.",
+          variant: "destructive",
+        });
+      } else if (data) {
+        setUserFavoritedStores(data.map(f => f.store_id));
+      }
+    };
+    fetchFavoritedStores();
   }, [user, toast]);
 
   const handleToggleFavorite = async (item: JewelryItem, isCurrentlyFavorited: boolean) => {
@@ -415,6 +442,55 @@ export function IndividualNetworkView() {
   
   const isMapSearchActive = activeSearchType === 'store_gps' || activeSearchType === 'store_address_radius' || (activeSearchType === 'store_keyword' && displayedStores.length > 0);
 
+  // New function for toggling store favorite status
+  const handleToggleStoreFavorite = async (store: StoreType, isCurrentlyFavorited: boolean) => {
+    if (!user) {
+      toast({
+        title: "Not logged in",
+        description: "Please log in to add stores to your favorites.",
+        variant: "default",
+      });
+      return;
+    }
+
+    if (isCurrentlyFavorited) {
+      // Remove from favorites
+      const { error } = await supabase
+        .from('user_favorite_stores')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('store_id', store.id);
+
+      if (error) {
+        console.error("Error removing favorite store:", error);
+        toast({
+          title: "Error removing favorite store",
+          description: "Could not remove store from favorites.",
+          variant: "destructive",
+        });
+      } else {
+        setUserFavoritedStores(prev => prev.filter(id => id !== store.id));
+        toast({ title: "Removed from favorites", description: "Store successfully removed from your favorites.", variant: "default" });
+      }
+    } else {
+      // Add to favorites
+      const { error } = await supabase
+        .from('user_favorite_stores')
+        .insert({ user_id: user.id, store_id: store.id });
+
+      if (error) {
+        console.error("Error adding favorite store:", error);
+        toast({
+          title: "Error adding favorite store",
+          description: "Could not add store to favorites.",
+          variant: "destructive",
+        });
+      } else {
+        setUserFavoritedStores(prev => [...prev, store.id]);
+        toast({ title: "Added to favorites", description: "Store successfully added to your favorites!", variant: "default" });
+      }
+    }
+  };
 
   return (
     <div className="space-y-8">
@@ -556,11 +632,15 @@ export function IndividualNetworkView() {
                 ) : displayedStores.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {displayedStores.map((store) => (
-                        <Link href={`/dashboard/store/${store.id}`} key={store.id} legacyBehavior>
-                            <a className="block hover:opacity-90 transition-opacity">
-                            <StoreCard store={store} />
-                            </a>
-                        </Link>
+                            <Link href={`/dashboard/store/${store.id}`} key={store.id} legacyBehavior>
+                                <a className="block hover:opacity-90 transition-opacity">
+                                    <StoreCard 
+                                        store={store} 
+                                        isFavorited={userFavoritedStores.includes(store.id)} 
+                                        onToggleFavorite={(clickedStore, isCurrentlyFavorited) => handleToggleStoreFavorite(clickedStore, isCurrentlyFavorited)}
+                                    />
+                                </a>
+                            </Link>
                         ))}
                     </div>
                 ) : (

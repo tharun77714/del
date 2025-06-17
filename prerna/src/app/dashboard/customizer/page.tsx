@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"; // Keep Card components
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // Keep Alert
-import { Loader2, Sparkles, AlertTriangle, UploadCloud, Image as ImageIcon, Lightbulb, SlidersHorizontal, Info, History, RotateCcw as RevertIcon, Eye, Wand2 } from "lucide-react";
+import { Loader2, Sparkles, AlertTriangle, UploadCloud, Image as ImageIcon, Lightbulb, SlidersHorizontal, Info, History, RotateCcw as RevertIcon, Eye, Wand2, Save } from "lucide-react";
 import { customizeJewelry, type CustomizeJewelryInput } from "@/ai/flows/customize-jewelry";
 import { enhanceJewelryPrompt, type EnhanceJewelryPromptInput } from "@/ai/flows/enhance-jewelry-prompt"; // Import new flow
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"; // Keep Tabs components
@@ -363,15 +363,14 @@ export default function CustomizerPage() {
 
     if (customizedImageDataUri) {
       try {
+        router.push(`/dashboard/product-details`);
         sessionStorage.setItem('productDetailsImageUri', customizedImageDataUri);
         sessionStorage.setItem('productDetailsPrompt', promptForDetails);
-        router.push('/dashboard/product-details');
       } catch (e) {
-        console.error("Error using sessionStorage:", e);
-        setError("Could not navigate to details page. Your browser might be blocking session storage or it's full.");
+        setError("Could not navigate to details page.");
         toast({
           title: "Navigation Error",
-          description: "Could not navigate to details page. Your browser might be blocking session storage or it's full.",
+          description: "Could not navigate to details page.",
           variant: "destructive",
         });
       }
@@ -408,7 +407,7 @@ export default function CustomizerPage() {
   const submitButtonText = baseImageDataUri ? "Refine This Design" : "Generate New Design";
   const submitButtonDisabled = isLoading || isEnhancingPrompt ||
                                (!isCustomizationProvided() && !baseImageDataUri) ||
-                               (baseImageDataUri && !isCustomizationProvided() && !baseImageFile); 
+                               (!!baseImageDataUri && !isCustomizationProvided() && !baseImageFile); 
 
   return (
     <div className="space-y-8 pb-16">
@@ -609,102 +608,107 @@ export default function CustomizerPage() {
               </Tabs>
             </div>
 
-            <Button type="submit" disabled={!!submitButtonDisabled} className="w-full bg-primary hover:bg-primary/90 text-primary-foreground text-lg py-6">
-              {isLoading ? (
-                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              ) : (
-                <Sparkles className="mr-2 h-5 w-5" />
-              )}
-              {submitButtonText}
-            </Button>
-            {baseImageDataUri && (
-              <Button variant="destructive" onClick={handleStartOver} className="w-full mt-4">
-                GENERATE NEW DESIGN (START OVER)
+            <div className="flex flex-wrap items-center justify-end gap-3 pt-4 border-t border-border">
+               <Button
+                type="button"
+                variant="outline"
+                onClick={handleStartOver}
+                disabled={isLoading || (!baseImageDataUri && !customizedImageDataUri)}
+                className="order-last sm:order-first"
+              >
+                Start Over
               </Button>
-            )}
+              <Button
+                type="submit"
+                disabled={submitButtonDisabled}
+                className="btn-primary-sparkle flex-1 sm:flex-none"
+              >
+                {isLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Wand2 className="mr-2 h-4 w-4" />
+                )}
+                {submitButtonText}
+              </Button>
+            </div>
           </form>
         </CardContent>
       </Card>
 
-      {(isLoading || customizedImageDataUri || (baseImageDataUri && !baseImageFile) ) && (
-         <div className="grid md:grid-cols-2 gap-8 mt-12">
-          {baseImageDataUri && !isLoading && !baseImageFile && ( 
-            <Card className="animate-in fade-in duration-500">
-              <CardHeader>
-                <CardTitle className="text-xl flex items-center"><ImageIcon className="mr-2 h-5 w-5 text-muted-foreground"/>Current Base Design</CardTitle>
-              </CardHeader>
-              <CardContent className="flex justify-center items-center p-4 min-h-[300px]">
-                <Image src={baseImageDataUri} alt="Base Jewelry for next customization" width={400} height={400} className="rounded-lg object-contain max-h-[400px]" />
-              </CardContent>
-            </Card>
-          )}
-
-          {isLoading && (
-            <Card className={`animate-in fade-in duration-500 ${(!baseImageDataUri || baseImageFile) || isLoading ? 'md:col-span-2' : ''}`}>
-              <CardHeader>
-                <CardTitle className="text-xl flex items-center">
-                    <Sparkles className="mr-2 h-5 w-5 text-primary animate-pulse"/>
-                    {baseImageDataUri ? "Refining Design..." : "Generating New Design..."}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col justify-center items-center p-4 min-h-[300px] text-muted-foreground">
-                <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
-                <p>AI is working its magic...</p>
-                <p>This may take a moment.</p>
-              </CardContent>
-            </Card>
-          )}
-
-          {customizedImageDataUri && !isLoading && (
-            <Card className={`animate-in fade-in duration-500 ${(!baseImageDataUri || baseImageFile) && !isLoading ? 'md:col-span-2' : ''}`}>
-              <CardHeader>
-                <CardTitle className="text-xl flex items-center">
-                    <Sparkles className="mr-2 h-5 w-5 text-primary"/>
-                    Latest AI Result
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col justify-center items-center p-4 min-h-[300px]">
-                <Image src={customizedImageDataUri} alt="Customized or Generated Jewelry" width={400} height={400} className="rounded-lg object-contain max-h-[400px]" />
-                <div className="flex gap-2 mt-4 w-full sm:w-auto">
-                    <Button onClick={handleViewDetails} variant="outline" className="flex-1 border-accent text-accent hover:bg-accent/10" disabled={!customizedImageDataUri || isLoading}>
-                      <Eye className="mr-2 h-4 w-4" /> Details
-                    </Button>
-                </div>
-                <Button onClick={handleSaveModel} variant="default" className="mt-4 w-full">
-                  Save Model
+      {/* Current Base Design Section */}
+      {baseImageDataUri && (
+        <Card className="shadow-lg animate-in fade-in duration-300">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-2xl flex items-center">
+              <ImageIcon className="mr-2 h-6 w-6 text-primary" /> Current Base Design
+            </CardTitle>
+            <CardDescription>This is the image currently being used as the base for AI customization.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col md:flex-row items-center gap-6">
+            <div className="relative w-48 h-48 sm:w-64 sm:h-64 flex-shrink-0 bg-muted/30 rounded-lg overflow-hidden border border-border">
+              <Image src={baseImageDataUri} alt="Current base jewelry design" layout="fill" objectFit="contain" className="p-2" />
+            </div>
+            <div className="space-y-4 text-center md:text-left flex-grow">
+              <p className="text-muted-foreground text-sm">Ready for the next customization or view details.</p>
+              <div className="flex flex-col sm:flex-row gap-3 justify-center md:justify-start">
+                <Button
+                  onClick={handleViewDetails}
+                  variant="secondary"
+                  disabled={!baseImageDataUri || isLoading || isEnhancingPrompt}
+                  className="flex-1 sm:flex-none"
+                >
+                  <Eye className="mr-2 h-4 w-4" /> View Details
                 </Button>
-              </CardContent>
-            </Card>
-          )}
-        </div>
+                {user && (
+                  <Button
+                    onClick={handleSaveModel}
+                    variant="outline"
+                    disabled={!baseImageDataUri || isLoading || isEnhancingPrompt}
+                    className="flex-1 sm:flex-none"
+                  >
+                    <Save className="mr-2 h-4 w-4" /> Save This Model
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
-      {imageHistory.length > 0 && !isLoading && (customizedImageDataUri || (baseImageDataUri && !baseImageFile)) && (
-        <Card className="mt-8 animate-in fade-in duration-500">
-          <CardHeader>
-            <CardTitle className="text-xl flex items-center">
-              <History className="mr-2 h-5 w-5 text-muted-foreground" /> Design History (Last 3 Iterations)
+      {/* History Section */}
+      {imageHistory.length > 1 && (
+        <Card className="shadow-lg animate-in fade-in duration-300">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-2xl flex items-center">
+              <History className="mr-2 h-6 w-6 text-primary" /> Design History
             </CardTitle>
-            <CardDescription>Click an image to view it and use it as the new base for further customization. Inputs above will be cleared. Hover over an image to see the prompt used.</CardDescription>
+            <CardDescription>Previously generated designs from this session.</CardDescription>
           </CardHeader>
-          <CardContent className="grid grid-cols-2 sm:grid-cols-3 gap-4 p-4">
-            {imageHistory.map((historyItem, index) => (
-              <button
-                key={index}
-                title={historyItem.description}
-                onClick={() => handleHistoryImageSelect(historyItem)}
-                className={`border rounded-lg overflow-hidden hover:shadow-md transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${baseImageDataUri === historyItem.imageUrl ? 'ring-2 ring-primary shadow-lg scale-105' : 'hover:opacity-80'}`}
-                aria-label={`View design version ${imageHistory.length - index}. Prompt: ${historyItem.description.substring(0, 50)}...`}
-              >
-                <Image
-                  src={historyItem.imageUrl}
-                  alt={`History image ${imageHistory.length - index} - ${historyItem.description.substring(0,30)}...`}
-                  width={200}
-                  height={200}
-                  className="object-contain w-full h-full aspect-square bg-muted/10"
-                />
-              </button>
-            ))}
+          <CardContent>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {imageHistory.slice(1).map((item, index) => (
+                <Card 
+                  key={index} 
+                  className="relative group overflow-hidden cursor-pointer hover:shadow-lg transition-shadow border-2 border-transparent hover:border-primary"
+                  onClick={() => handleHistoryImageSelect(item)}
+                >
+                  <div className="relative w-full aspect-square bg-muted/20">
+                    <Image src={item.imageUrl} alt={item.description} layout="fill" objectFit="contain" className="p-1" />
+                  </div>
+                  <CardContent className="p-2 text-center">
+                    <p className="text-xs text-muted-foreground line-clamp-2" title={item.description}>{item.description}</p>
+                  </CardContent>
+                  {baseImageDataUri === item.imageUrl && (
+                    <div className="absolute top-1 right-1 bg-primary text-primary-foreground text-xs px-2 py-1 rounded-full">CURRENT</div>
+                  )}
+                </Card>
+              ))}
+            </div>
+            {imageHistory.length > 3 && (
+              <p className="text-sm text-muted-foreground text-center mt-4">
+                Only the 3 most recent history items are kept.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}

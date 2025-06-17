@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { JewelryCard, type JewelryItem as JewelryItemType } from '@/components/networks/jewelry-card';
 import type { Store as StoreType } from '@/components/networks/store-card';
 import { getProfile, getJewelryItemsByBusiness } from '@/lib/actions/supabase-actions';
-import { ArrowLeft, MapPin, PackageSearch, AlertTriangle, ShoppingBag, Loader2, MessageSquare, Star, Info, Eye } from 'lucide-react'; 
+import { ArrowLeft, MapPin, PackageSearch, AlertTriangle, ShoppingBag, Loader2, MessageSquare, Star, Info, Eye, Heart, Edit } from 'lucide-react'; 
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from "@/hooks/use-toast";
@@ -21,6 +21,7 @@ import { DirectionBar } from "@/components/ui/DirectionBar";
 import dynamic from 'next/dynamic';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { useReviews } from '@/contexts/ReviewsContext'; // Import useReviews
 
 const StoreDirectionsMap = dynamic(() => import('@/components/networks/StoreDirectionsMap').then(mod => mod.default), { ssr: false });
 
@@ -30,6 +31,7 @@ export default function StoreDetailPage() {
   const { toast } = useToast();
   const { user, profile: currentUserProfile } = useAuth(); 
   const { openChatWithUser, isChatOpen, toggleChat } = useChat();
+  const { openReviewsForStore } = useReviews(); // Get openReviewsForStore from context
   const storeId = params.storeId as string;
 
   const [storeDetails, setStoreDetails] = useState<StoreType | null>(null);
@@ -41,6 +43,10 @@ export default function StoreDetailPage() {
   const [ratingKey, setRatingKey] = useState(0);
   const [avgRating, setAvgRating] = useState(5);
   const [reviewCount, setReviewCount] = useState(0);
+  const [userFavorites, setUserFavorites] = useState<string[]>([]);
+  const [userFavoritedStores, setUserFavoritedStores] = useState<string[]>([]);
+  const [userReview, setUserReview] = useState<any>(null); // New state for user's review
+  const [isEditingUserReview, setIsEditingUserReview] = useState(false); // New state for editing user review
 
   // Fetch store ratings
   useEffect(() => {
@@ -52,6 +58,87 @@ export default function StoreDetailPage() {
     };
     fetchRating();
   }, [storeId, refreshReviews]);
+
+  // New useEffect to fetch user favorites
+  useEffect(() => {
+    const fetchFavorites = async () => {
+      if (user) {
+        const { data, error } = await supabase
+          .from('user_favorites')
+          .select('item_id')
+          .eq('user_id', user.id);
+
+        if (error) {
+          console.error("Error fetching favorites:", error);
+          toast({
+            title: "Error loading favorites",
+            description: "Could not load your favorited items.",
+            variant: "destructive",
+          });
+        } else if (data) {
+          setUserFavorites(data.map(f => f.item_id));
+        }
+      }
+    };
+    fetchFavorites();
+  }, [user, toast]);
+
+  // New useEffect to fetch user favorited stores
+  useEffect(() => {
+    const fetchFavoritedStores = async () => {
+      if (!user) {
+        setUserFavoritedStores([]);
+        return;
+      }
+      const { data, error } = await supabase
+        .from('user_favorite_stores')
+        .select('store_id')
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.error("Error fetching favorited stores:", error);
+        toast({
+          title: "Error loading favorite stores",
+          description: "Could not load your favorited stores.",
+          variant: "destructive",
+        });
+      } else if (data) {
+        setUserFavoritedStores(data.map(f => f.store_id));
+      }
+    };
+    fetchFavoritedStores();
+  }, [user, toast]);
+
+  // New useEffect to fetch current user's review for this store
+  useEffect(() => {
+    const fetchUserReview = async () => {
+      if (!user || !storeId) {
+        setUserReview(null);
+        return;
+      }
+      try {
+        const { data, error } = await supabase
+          .from('store_reviews')
+          .select('*')
+          .eq('store_id', storeId)
+          .eq('user_id', user.id)
+          .single(); // Use single to get one record or null
+
+        if (error && error.code !== 'PGRST116') { // PGRST116 means no rows found
+          throw error;
+        }
+        setUserReview(data || null);
+      } catch (error: any) {
+        console.error("Error fetching user review:", error);
+        toast({
+          title: "Error loading your review",
+          description: error.message,
+          variant: "destructive",
+        });
+      }
+    };
+    fetchUserReview();
+  }, [user, storeId, toast, refreshReviews]); // Added refreshReviews to trigger re-fetch
 
   useEffect(() => {
     const fetchStoreData = async () => {
@@ -117,6 +204,7 @@ export default function StoreDetailPage() {
             description: item.description,
             imageUrl: item.image_url,
             dataAiHint: `${item.style} ${item.name.split(' ')[0]}`,
+            business_id: storeId,
           })));
         }
       } catch (e: any) {
@@ -130,6 +218,105 @@ export default function StoreDetailPage() {
 
     fetchStoreData();
   }, [storeId, toast, ratingKey]); // Add ratingKey to dependencies
+
+  const handleToggleFavorite = async (item: JewelryItemType, isCurrentlyFavorited: boolean) => {
+    if (!user) {
+      toast({
+        title: "Not logged in",
+        description: "Please log in to add items to your favorites.",
+        variant: "default",
+      });
+      return;
+    }
+
+    if (isCurrentlyFavorited) {
+      // Remove from favorites
+      const { error } = await supabase
+        .from('user_favorites')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('item_id', item.id);
+
+      if (error) {
+        console.error("Error removing favorite:", error);
+        toast({
+          title: "Error removing favorite",
+          description: "Could not remove item from favorites.",
+          variant: "destructive",
+        });
+      } else {
+        setUserFavorites(prev => prev.filter(id => id !== item.id));
+        toast({ title: "Removed from favorites", description: "Item successfully removed from your favorites.", variant: "default" });
+      }
+    } else {
+      // Add to favorites - No longer upserting to jewelry_items here as it should be managed by businesses.
+      const { error: favoriteError } = await supabase
+        .from('user_favorites')
+        .insert({ user_id: user.id, item_id: item.id });
+
+      if (favoriteError) {
+        console.error("Error adding favorite:", favoriteError);
+        toast({
+          title: "Error adding favorite",
+          description: "Could not add item to favorites.",
+          variant: "destructive",
+        });
+      } else {
+        setUserFavorites(prev => [...prev, item.id]);
+        toast({ title: "Added to favorites", description: "Item successfully added to your favorites!", variant: "default" });
+      }
+    }
+  };
+
+  // New function for toggling store favorite status
+  const handleToggleStoreFavorite = async (store: StoreType, isCurrentlyFavorited: boolean) => {
+    if (!user) {
+      toast({
+        title: "Not logged in",
+        description: "Please log in to add stores to your favorites.",
+        variant: "default",
+      });
+      return;
+    }
+
+    if (isCurrentlyFavorited) {
+      // Remove from favorites
+      const { error } = await supabase
+        .from('user_favorite_stores')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('store_id', store.id);
+
+      if (error) {
+        console.error("Error removing favorite store:", error);
+        toast({
+          title: "Error removing favorite store",
+          description: "Could not remove store from favorites.",
+          variant: "destructive",
+        });
+      } else {
+        setUserFavoritedStores(prev => prev.filter(id => id !== store.id));
+        toast({ title: "Removed from favorites", description: "Store successfully removed from your favorites.", variant: "default" });
+      }
+    } else {
+      // Add to favorites
+      const { error } = await supabase
+        .from('user_favorite_stores')
+        .insert({ user_id: user.id, store_id: store.id });
+
+      if (error) {
+        console.error("Error adding favorite store:", error);
+        toast({
+          title: "Error adding favorite store",
+          description: "Could not add store to favorites.",
+          variant: "destructive",
+        });
+      } else {
+        setUserFavoritedStores(prev => [...prev, store.id]);
+        toast({ title: "Added to favorites", description: "Store successfully added to your favorites!", variant: "default" });
+      }
+    }
+  };
 
   const handleChatWithBusiness = async () => {
     if (currentUserProfile && storeDetails && storeDetails.id !== currentUserProfile.id) {
@@ -171,12 +358,10 @@ export default function StoreDetailPage() {
   };
 
   const canChatWithBusiness = currentUserProfile?.role === 'individual' && storeDetails && currentUserProfile.id !== storeDetails.id;
+  const isStoreFavorited = storeDetails ? userFavoritedStores.includes(storeDetails.id) : false; // Determine if the current store is favorited
 
   const handleScrollToReviews = () => {
-    const reviewsSection = document.getElementById('customer-reviews');
-    if (reviewsSection) {
-      reviewsSection.scrollIntoView({ behavior: 'smooth' });
-    }
+    openReviewsForStore(storeId); // Open the reviews sidebar instead of scrolling
   };
 
   if (isLoadingStoreDetails) {
@@ -227,7 +412,7 @@ export default function StoreDetailPage() {
   return (
     <div className="space-y-8">
       <div className="flex items-center gap-4 mb-6">
-        <Button variant="ghost" size="icon" onClick={() => router.back()}>
+        <Button onClick={() => router.back()} variant="ghost" size="icon">
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <h1 className="text-3xl font-bold">{storeDetails.name}</h1>
@@ -275,13 +460,17 @@ export default function StoreDetailPage() {
                 <MessageSquare className="mr-2 h-4 w-4" /> Chat with this Business
               </Button>
             )}
-            {storeDetails.latitude && storeDetails.longitude && (
-                <DirectionBar
-                    latitude={storeDetails.latitude}
-                    longitude={storeDetails.longitude}
-                    storeName={storeDetails.name}
-                    storeAddress={storeDetails.address}
-                />
+            {/* Favorite/Unfavorite Store Button */}
+            {user && currentUserProfile?.role === 'individual' && storeDetails && (
+              <Button
+                onClick={() => handleToggleStoreFavorite(storeDetails, isStoreFavorited)}
+                size="sm"
+                variant={isStoreFavorited ? "secondary" : "default"}
+                className="flex items-center gap-2"
+              >
+                <Heart className={isStoreFavorited ? "fill-red-500 text-red-500" : "text-primary"} />
+                {isStoreFavorited ? "Remove from Favorites" : "Add to Favorites"}
+              </Button>
             )}
           </div>
         </CardContent>
@@ -314,29 +503,14 @@ export default function StoreDetailPage() {
               {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-72 w-full rounded-lg" />)}
             </div>
         ) : storeItems.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {storeItems.map(item => (
-              <div key={item.id} className="relative overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col h-full">
-                {/* The main card part, clickable to view details */}
-                <Link href={`/dashboard/product-details`} onClick={() => {
-                    sessionStorage.setItem('productDetailsImageUri', item.imageUrl);
-                    sessionStorage.setItem('productDetailsPrompt', item.description);
-                    sessionStorage.removeItem('activateTryOnMode'); // Important: clear this if navigating normally
-                }} className="block flex-grow"> {/* `block` and `flex-grow` to make link fill space */}
-                  <JewelryCard {...item} className="h-full" /> {/* Ensure JewelryCard takes full height */}
-                </Link>
-                {/* The AR Try On button */}
-                <div className="p-4 pt-0"> {/* Use padding to align with CardContent */}
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => handleTryOn(item.imageUrl, item.description)}
-                    className="w-full btn-primary-sparkle"
-                  >
-                    <Eye className="mr-2 h-4 w-4" /> AR Try On
-                  </Button>
-                </div>
-              </div>
+              <JewelryCard
+                key={item.id}
+                {...item}
+                isFavorited={userFavorites.includes(item.id)}
+                onToggleFavorite={(clickedItem, isCurrentlyFavorited) => handleToggleFavorite(clickedItem, isCurrentlyFavorited)}
+              />
             ))}
           </div>
         ) : (
@@ -356,6 +530,41 @@ export default function StoreDetailPage() {
         <Button onClick={handleScrollToReviews} variant="outline" className="w-full sm:w-auto mx-auto mt-4">
           <Eye className="mr-2 h-4 w-4" /> View Reviews ({reviewCount})
         </Button>
+      )}
+
+      {/* My Review Section */}
+      {user && currentUserProfile?.role === 'individual' && userReview && (
+        <Card className="mt-6 p-4">
+          <CardHeader className="p-0 mb-4">
+            <CardTitle className="text-xl">Your Review</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="flex items-center mb-2">
+              <span className="text-yellow-500 text-lg">
+                {'★'.repeat(userReview.rating)}{'☆'.repeat(5 - userReview.rating)}
+              </span>
+              <span className="ml-2 text-sm text-muted-foreground">
+                {userReview.rating}/5
+              </span>
+            </div>
+            <p className="text-muted-foreground text-sm mb-4">{userReview.review_text}</p>
+            <Button onClick={() => setIsEditingUserReview(true)} size="sm" variant="outline">
+              <Edit className="mr-2 h-4 w-4" /> Edit My Review
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {isEditingUserReview && userReview && (
+          <EditReviewForm
+              review={userReview}
+              onCancel={() => setIsEditingUserReview(false)}
+              onSaved={() => {
+                  setIsEditingUserReview(false);
+                  setRefreshReviews(prev => prev + 1); // Trigger review re-fetch
+                  setRatingKey(prev => prev + 1); // Trigger store rating re-calculation
+              }}
+          />
       )}
     </div>
   );

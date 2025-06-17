@@ -22,6 +22,8 @@ import { format } from 'date-fns';
 import supabase from '@/lib/supabaseClient';
 import { calculateStoreRating } from '@/lib/utils/ratings';
 import { JewelryCard, type JewelryItem } from '@/components/networks/jewelry-card';
+import { StoreCard, type Store as StoreType } from '@/components/networks/store-card';
+import Link from 'next/link';
 
 // Helper function to validate UUID format
 const isValidUUID = (uuid: string) => {
@@ -60,6 +62,8 @@ export default function IndividualProfilePage() {
   const [refreshReviews, setRefreshReviews] = useState(0);
   const [favoritedDesigns, setFavoritedDesigns] = useState<JewelryItem[]>([]);
   const [isLoadingFavoritedDesigns, setIsLoadingFavoritedDesigns] = useState(true);
+  const [favoritedStores, setFavoritedStores] = useState<StoreType[]>([]);
+  const [isLoadingFavoritedStores, setIsLoadingFavoritedStores] = useState(true);
 
   const form = useForm<IndividualProfileFormValues>({
     resolver: zodResolver(individualProfileSchema),
@@ -162,7 +166,16 @@ export default function IndividualProfilePage() {
           return;
         }
         
-        setFavoritedDesigns(jewelryItemsData as JewelryItem[] || []);
+        setFavoritedDesigns(jewelryItemsData.map(item => ({
+          id: item.id,
+          name: item.name,
+          type: typeof item.type === 'string' ? item.type : 'General',
+          style: item.style,
+          material: item.material,
+          description: item.description,
+          imageUrl: (typeof item.image_url === 'string' && item.image_url) ? item.image_url : 'https://placehold.co/300x200.png?text=No+Image',
+          business_id: item.business_id || null,
+        })) || []);
 
       } catch (error: any) {
         console.error("Unexpected error fetching favorite designs:", error);
@@ -178,6 +191,95 @@ export default function IndividualProfilePage() {
     };
 
     fetchFavoritedDesigns();
+  }, [user, toast]);
+
+  useEffect(() => {
+    const fetchFavoritedStores = async () => {
+      if (!user) {
+        setFavoritedStores([]);
+        setIsLoadingFavoritedStores(false);
+        return;
+      }
+
+      setIsLoadingFavoritedStores(true);
+      try {
+        const { data: favoriteStoreIdsData, error: favoriteStoreIdsError } = await supabase
+          .from('user_favorite_stores')
+          .select('store_id')
+          .eq('user_id', user.id);
+
+        if (favoriteStoreIdsError) {
+          console.error("Error fetching user favorite store IDs:", favoriteStoreIdsError);
+          toast({
+            title: "Error loading favorite stores",
+            description: `Could not load your favorite store IDs: ${favoriteStoreIdsError.message}`,
+            variant: "destructive",
+          });
+          setFavoritedStores([]);
+          return;
+        }
+
+        if (!favoriteStoreIdsData || favoriteStoreIdsData.length === 0) {
+          setFavoritedStores([]);
+          setIsLoadingFavoritedStores(false);
+          return;
+        }
+
+        const favoritedStoreIds = favoriteStoreIdsData.map(f => f.store_id).filter(isValidUUID); // Filter out invalid UUIDs
+
+        if (favoritedStoreIds.length === 0) {
+          setFavoritedStores([]);
+          setIsLoadingFavoritedStores(false);
+          return;
+        }
+
+        // Now fetch details for these stores from the profiles table
+        const { data: storeProfilesData, error: storeProfilesError } = await supabase
+          .from('profiles')
+          .select('id, business_name, business_address_text, business_type, business_address_lat, business_address_lng')
+          .in('id', favoritedStoreIds);
+
+        if (storeProfilesError) {
+          console.error("Error fetching favorited store details:", storeProfilesError);
+          toast({
+            title: "Error loading favorite stores",
+            description: `Could not load details for your favorite stores: ${storeProfilesError.message}`,
+            variant: "destructive",
+          });
+          setFavoritedStores([]);
+          return;
+        }
+
+        const storesWithRatings = await Promise.all((storeProfilesData || []).map(async (profile: any) => {
+          const { avgRating, reviewCount } = await calculateStoreRating(supabase, profile.id);
+          return {
+            id: profile.id,
+            name: profile.business_name || 'Unnamed Business',
+            address: profile.business_address_text || 'Address not available',
+            type: profile.business_type || 'N/A',
+            latitude: profile.business_address_lat || 0,
+            longitude: profile.business_address_lng || 0,
+            avgRating,
+            reviewCount,
+          } as StoreType;
+        }));
+        
+        setFavoritedStores(storesWithRatings);
+
+      } catch (error: any) {
+        console.error("Unexpected error fetching favorite stores:", error);
+        toast({
+          title: "Error loading favorite stores",
+          description: "An unexpected error occurred while loading your favorite stores.",
+          variant: "destructive",
+        });
+        setFavoritedStores([]);
+      } finally {
+        setIsLoadingFavoritedStores(false);
+      }
+    };
+
+    fetchFavoritedStores();
   }, [user, toast]);
 
   useEffect(() => {
@@ -252,6 +354,55 @@ export default function IndividualProfilePage() {
       setIsSubmittingProfile(false);
     }
   }
+
+  const handleToggleStoreFavorite = async (store: StoreType, isCurrentlyFavorited: boolean) => {
+    if (!user) {
+      toast({
+        title: "Not logged in",
+        description: "Please log in to add stores to your favorites.",
+        variant: "default",
+      });
+      return;
+    }
+
+    if (isCurrentlyFavorited) {
+      // Remove from favorites
+      const { error } = await supabase
+        .from('user_favorite_stores')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('store_id', store.id);
+
+      if (error) {
+        console.error("Error removing favorite store:", error);
+        toast({
+          title: "Error removing favorite store",
+          description: "Could not remove store from favorites.",
+          variant: "destructive",
+        });
+      } else {
+        setFavoritedStores(prev => prev.filter(s => s.id !== store.id)); // Update local state immediately
+        toast({ title: "Removed from favorites", description: "Store successfully removed from your favorites.", variant: "default" });
+      }
+    } else {
+      // Add to favorites
+      const { error } = await supabase
+        .from('user_favorite_stores')
+        .insert({ user_id: user.id, store_id: store.id });
+
+      if (error) {
+        console.error("Error adding favorite store:", error);
+        toast({
+          title: "Error adding favorite store",
+          description: "Could not add store to favorites.",
+          variant: "destructive",
+        });
+      } else {
+        setFavoritedStores(prev => [...prev, { ...store, isFavorited: true }]); // Add to local state with isFavorited true
+        toast({ title: "Added to favorites", description: "Store successfully added to your favorites!", variant: "default" });
+      }
+    }
+  };
 
   if (authLoading || !profile) {
     return (
@@ -466,6 +617,39 @@ export default function IndividualProfilePage() {
               <Heart className="mx-auto h-12 w-12 mb-4 text-gray-400" />
               <p>You haven't favorited any designs yet.</p>
               <p>Explore our jewelry and click the heart icon to add them to your favorites!</p>
+            </CardContent>
+          )}
+        </Card>
+      </div>
+
+      <Separator />
+
+      <div>
+        <h2 className="font-headline text-xl flex items-center mb-4"><Heart className="mr-2 h-5 w-5 text-accent"/> Your Favorite Stores</h2>
+        <Card className="shadow-lg">
+          {isLoadingFavoritedStores ? (
+            <CardContent className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 p-4">
+              {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-64 w-full" />)}
+            </CardContent>
+          ) : favoritedStores.length > 0 ? (
+            <CardContent className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 p-4">
+              {favoritedStores.map(store => (
+                <Link href={`/dashboard/store/${store.id}`} key={store.id} legacyBehavior>
+                  <a className="block hover:opacity-90 transition-opacity">
+                    <StoreCard
+                      store={store}
+                      isFavorited={true}
+                      onToggleFavorite={(clickedStore, isCurrentlyFavorited) => handleToggleStoreFavorite(clickedStore, isCurrentlyFavorited)}
+                    />
+                  </a>
+                </Link>
+              ))}
+            </CardContent>
+          ) : (
+            <CardContent className="p-4 text-center text-muted-foreground">
+              <Heart className="mx-auto h-12 w-12 mb-4 text-gray-400" />
+              <p>You haven't favorited any stores yet.</p>
+              <p>Explore our stores and click the heart icon to add them to your favorites!</p>
             </CardContent>
           )}
         </Card>

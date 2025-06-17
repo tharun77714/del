@@ -14,6 +14,7 @@ export interface JewelryItem {
   description: string;
   imageUrl: string;
   dataAiHint?: string; // Optional, more relevant for AI suggestions
+  business_id?: string; // New: Optional business ID if from a specific store
 }
 
 interface JewelryCardProps extends JewelryItem {
