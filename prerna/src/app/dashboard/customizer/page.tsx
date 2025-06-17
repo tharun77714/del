@@ -70,6 +70,8 @@ export default function CustomizerPage() {
   const [isRecording, setIsRecording] = useState<boolean>(false); // State for recording status
   const [recognition, setRecognition] = useState<any | null>(null); // State for SpeechRecognition instance
   const [isMounted, setIsMounted] = useState(false);
+  const [latestAIResultDataUri, setLatestAIResultDataUri] = useState<string | null>(null);
+  const [fixedBaseImageDataUri, setFixedBaseImageDataUri] = useState<string | null>(null);
 
   useEffect(() => {
     setIsMounted(true);
@@ -108,15 +110,19 @@ export default function CustomizerPage() {
       try {
         const dataUri = await fileToDataUri(file);
         setBaseImageDataUri(dataUri);
-        setInitialUploadedImageDataUri(dataUri); 
-        setCustomizedImageDataUri(dataUri); 
+        setFixedBaseImageDataUri(dataUri);
+        setInitialUploadedImageDataUri(dataUri);
+        setCustomizedImageDataUri(dataUri);
+        setLatestAIResultDataUri(dataUri);
         setImageHistory([{ imageUrl: dataUri, description: "Initial image" }]);
         clearCustomizationInputs();
       } catch (err) {
         setError("Failed to load image. Please try again.");
         setBaseImageDataUri(null);
+        setFixedBaseImageDataUri(null);
         setInitialUploadedImageDataUri(null);
         setCustomizedImageDataUri(null);
+        setLatestAIResultDataUri(null);
       }
     } else {
       setBaseImageFile(null);
@@ -294,7 +300,9 @@ export default function CustomizerPage() {
       const input: CustomizeJewelryInput = {
         customizationDescription: finalCustomizationDescription || "Create a new jewelry design.",
       };
-      if (baseImageDataUri) {
+      if (latestAIResultDataUri) {
+        input.baseJewelryDataUri = latestAIResultDataUri;
+      } else if (baseImageDataUri) {
         input.baseJewelryDataUri = baseImageDataUri;
       }
       
@@ -304,10 +312,11 @@ export default function CustomizerPage() {
         description: finalCustomizationDescription || (baseImageDataUri ? "Subtle refinement" : "New design from empty prompt") 
       };
 
+      if (!fixedBaseImageDataUri) {
+        setFixedBaseImageDataUri(result.customizedJewelryDataUri);
+      }
+      setLatestAIResultDataUri(result.customizedJewelryDataUri);
       setCustomizedImageDataUri(result.customizedJewelryDataUri);
-      setBaseImageDataUri(result.customizedJewelryDataUri); 
-      setBaseImageFile(null); 
-
       setImageHistory(prevHistory => {
         const updatedHistory = [newHistoryItem, ...prevHistory.filter(item => item.imageUrl !== result.customizedJewelryDataUri)];
         return updatedHistory.slice(0, 3); 
@@ -328,16 +337,15 @@ export default function CustomizerPage() {
   };
 
   const handleHistoryImageSelect = (historyItem: HistoryItem) => {
-    setCustomizedImageDataUri(historyItem.imageUrl); 
-    setBaseImageDataUri(historyItem.imageUrl); 
-    setBaseImageFile(null);
-    clearCustomizationInputs(); 
+    setLatestAIResultDataUri(historyItem.imageUrl);
+    setCustomizedImageDataUri(historyItem.imageUrl);
   };
 
   const handleRevertToInitial = () => {
     if (!initialUploadedImageDataUri) return;
     setBaseImageDataUri(initialUploadedImageDataUri);
-    setCustomizedImageDataUri(initialUploadedImageDataUri); 
+    setCustomizedImageDataUri(initialUploadedImageDataUri);
+    setLatestAIResultDataUri(initialUploadedImageDataUri);
     setBaseImageFile(null);
     const initialHistoryEntry: HistoryItem = { imageUrl: initialUploadedImageDataUri, description: "Initial image" };
     setImageHistory(prev => [initialHistoryEntry, ...prev.filter(item => item.imageUrl !== initialUploadedImageDataUri)].slice(0,3));
@@ -347,8 +355,10 @@ export default function CustomizerPage() {
   const handleStartOver = () => {
     setBaseImageFile(null);
     setBaseImageDataUri(null);
+    setFixedBaseImageDataUri(null);
     setInitialUploadedImageDataUri(null);
     setCustomizedImageDataUri(null);
+    setLatestAIResultDataUri(null);
     setImageHistory([]);
     clearCustomizationInputs();
     setError(null);
@@ -389,6 +399,13 @@ export default function CustomizerPage() {
       toast({ title: 'Saved!', description: 'Model saved to your profile.' });
     } catch (err) {
       toast({ title: 'Save failed', description: 'Could not save model.', variant: 'destructive' });
+    }
+  };
+
+  const acceptLatestAIResultAsBase = () => {
+    if (latestAIResultDataUri) {
+      setBaseImageDataUri(latestAIResultDataUri);
+      setCustomizedImageDataUri(latestAIResultDataUri);
     }
   };
   
@@ -635,26 +652,52 @@ export default function CustomizerPage() {
         </CardContent>
       </Card>
 
-      {/* Current Base Design Section */}
-      {baseImageDataUri && (
-        <Card className="shadow-lg animate-in fade-in duration-300">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-2xl flex items-center">
-              <ImageIcon className="mr-2 h-6 w-6 text-primary" /> Current Base Design
-            </CardTitle>
-            <CardDescription>This is the image currently being used as the base for AI customization.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col md:flex-row items-center gap-6">
-            <div className="relative w-48 h-48 sm:w-64 sm:h-64 flex-shrink-0 bg-muted/30 rounded-lg overflow-hidden border border-border">
-              <Image src={baseImageDataUri} alt="Current base jewelry design" layout="fill" objectFit="contain" className="p-2" />
-            </div>
-            <div className="space-y-4 text-center md:text-left flex-grow">
-              <p className="text-muted-foreground text-sm">Ready for the next customization or view details.</p>
-              <div className="flex flex-col sm:flex-row gap-3 justify-center md:justify-start">
+      {/* Current Base Design & Latest AI Result Section */}
+      {(baseImageDataUri || latestAIResultDataUri) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Current Base Design */}
+          <Card className="shadow-lg animate-in fade-in duration-300">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-2xl flex items-center">
+                <ImageIcon className="mr-2 h-6 w-6 text-primary" /> Current Base Design
+              </CardTitle>
+              <CardDescription>This is the image currently being used as the base for AI customization.</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col items-center gap-6">
+              {fixedBaseImageDataUri ? (
+                <div className="relative w-48 h-48 sm:w-64 sm:h-64 flex-shrink-0 bg-muted/30 rounded-lg overflow-hidden border border-border">
+                  <Image src={fixedBaseImageDataUri} alt="Current base jewelry design" layout="fill" objectFit="contain" className="p-2" />
+                </div>
+              ) : (
+                <div className="relative w-48 h-48 sm:w-64 sm:h-64 flex items-center justify-center bg-muted/30 rounded-lg border border-border text-muted-foreground">
+                  No base design yet
+                </div>
+              )}
+            </CardContent>
+          </Card>
+          {/* Latest AI Result */}
+          <Card className="shadow-lg animate-in fade-in duration-300">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-2xl flex items-center">
+                <Sparkles className="mr-2 h-6 w-6 text-primary" /> Latest AI Result
+              </CardTitle>
+              <CardDescription>This is the most recent design generated by AI. Accept it as the new base to continue refining.</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col items-center gap-6">
+              {latestAIResultDataUri ? (
+                <div className="relative w-48 h-48 sm:w-64 sm:h-64 flex-shrink-0 bg-muted/30 rounded-lg overflow-hidden border border-border">
+                  <Image src={latestAIResultDataUri} alt="Latest AI result" layout="fill" objectFit="contain" className="p-2" />
+                </div>
+              ) : (
+                <div className="relative w-48 h-48 sm:w-64 sm:h-64 flex items-center justify-center bg-muted/30 rounded-lg border border-border text-muted-foreground">
+                  No AI result yet
+                </div>
+              )}
+              <div className="flex flex-col sm:flex-row gap-3 w-full justify-center">
                 <Button
                   onClick={handleViewDetails}
                   variant="secondary"
-                  disabled={!baseImageDataUri || isLoading || isEnhancingPrompt}
+                  disabled={!latestAIResultDataUri || isLoading || isEnhancingPrompt}
                   className="flex-1 sm:flex-none"
                 >
                   <Eye className="mr-2 h-4 w-4" /> View Details
@@ -663,30 +706,30 @@ export default function CustomizerPage() {
                   <Button
                     onClick={handleSaveModel}
                     variant="outline"
-                    disabled={!baseImageDataUri || isLoading || isEnhancingPrompt}
+                    disabled={!latestAIResultDataUri || isLoading || isEnhancingPrompt}
                     className="flex-1 sm:flex-none"
                   >
                     <Save className="mr-2 h-4 w-4" /> Save This Model
                   </Button>
                 )}
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* History Section */}
-      {imageHistory.length > 1 && (
+      {imageHistory.length > 0 && (
         <Card className="shadow-lg animate-in fade-in duration-300">
           <CardHeader className="pb-3">
             <CardTitle className="text-2xl flex items-center">
               <History className="mr-2 h-6 w-6 text-primary" /> Design History
             </CardTitle>
-            <CardDescription>Previously generated designs from this session.</CardDescription>
+            <CardDescription>Previously generated designs from this session, including the current one.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {imageHistory.slice(1).map((item, index) => (
+              {imageHistory.map((item, index) => (
                 <Card 
                   key={index} 
                   className="relative group overflow-hidden cursor-pointer hover:shadow-lg transition-shadow border-2 border-transparent hover:border-primary"
